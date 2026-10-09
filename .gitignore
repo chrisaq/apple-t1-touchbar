@@ -1,0 +1,16 @@
+/build/
+/backups/
+*.pkg.tar.*
+*.ko
+*.ko.*
+*.o
+*.cmd
+*.mod
+*.mod.c
+Module.symvers
+modules.order
+*.key
+*.pub
+
+__pycache__/
+*.pyc
