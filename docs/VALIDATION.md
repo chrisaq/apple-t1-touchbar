@@ -4,7 +4,7 @@
 
 Verified without modifying the working installation:
 
-- `makepkg` built `apple-t1-touchbar-dkms-0.1-2-x86_64.pkg.tar.zst` successfully.
+- `makepkg` built `apple-t1-touchbar-dkms-0.1-3-x86_64.pkg.tar.zst` successfully.
 - All fixed local-source SHA-256 checksums passed.
 - Package archive was extracted and every integrity-manifest entry matched.
 - Package contains source and activation files, no prebuilt kernel modules or
@@ -19,7 +19,7 @@ Local commands:
 
 ```bash
 ./scripts/build-package
-python3 tests/check-repository.py build/apple-t1-touchbar-dkms-0.1-2-x86_64.pkg.tar.zst
+python3 tests/check-repository.py build/apple-t1-touchbar-dkms-0.1-3-x86_64.pkg.tar.zst
 ```
 
 The GitHub workflow checks release inputs and shell syntax with Python and
@@ -37,3 +37,7 @@ following a manual Omarchy DKMS repair. Five boot-integrity tests pass. The same
 helper was run on the host: it confirmed a mismatch, rebuilt through Limine and
 verified the resulting kernel release and hash. The user subsequently rebooted and confirmed the warning was gone.
 The revised package has not been installed on the host.
+
+Revision 0.1-3 registers the normal HID resume callback. All three modules
+compiled for 7.2.5-3-omarchy; its package built and passed archive/input integrity
+checks. The root manual-repair script and runtime resume remain untested.

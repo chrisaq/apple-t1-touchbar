@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 pkgname=apple-t1-touchbar-dkms
 pkgver=0.1
-pkgrel=2
+pkgrel=3
 pkgdesc='Apple T1 Touch Bar keyboard mode with deferred USB configuration and late activation'
 arch=('x86_64')
 license=('GPL-2.0-only')
@@ -49,7 +49,7 @@ package() {
 sha256sums=(
     '8a1cdaaf0c4312857833ef0a859ab8989b3d2724b8a225bd1e8acad3459d7cb9'
     '0b95701c3ec490b3e158ced93c2a4233551d21ce945d99d436fee3684f850150'
-    '5cfc8a9c27aa91eb6e4a1f39411427c08c8fd6de4ec9226c65128ed0c5fda6d1'
+    '2aa2caf1adce868dd5c76b648645bb599bc5c8d66c53e26ae12b0c3281dea5a7'
     '3b0a13160e5091420cff507ccc87f6b1e7127932a5c120ee345365d0870477ef'
     'df27e95a65577fe7f42ff9feb4b6865d824ec2edaf03ef3f904285d233070265'
     '1b8c4d5d0078c13e4cea7e05f30166f9fb3ebde1bf25bf42f3b73e96d775ed2f'

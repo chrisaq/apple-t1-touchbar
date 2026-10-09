@@ -48,3 +48,7 @@ The asynchronous display/configuration-transition path was not runtime-tested.
 Suspend/resume, trusted-signature enforcement, package migration, kernel upgrades
 and other models need their own validation. The package build/check results are
 recorded in `VALIDATION.md`.
+
+The source also registers ordinary `resume` using its existing reset-resume
+restoration routine. Missing this callback leaves the bar off after ordinary
+resume or an aborted suspend. This path is built but not runtime-verified here.

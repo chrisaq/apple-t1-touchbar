@@ -27,6 +27,9 @@ for path in [root / 'PKGBUILD', *sorted((root / 'scripts').iterdir())]:
 source = (root / 'driver/apple-ibridge.c').read_text()
 assert not re.search(r'\bret\s*=\s*usb_set_configuration\s*\(', source), 'Synchronous configuration call returned'
 assert 'usb_driver_set_configuration(udev, target_cv)' in source
+tb_source = (root / 'driver/apple-ib-tb.c').read_text()
+assert '.resume = appletb_reset_resume,' in tb_source, 'Normal/aborted suspend resume callback missing'
+assert '.reset_resume = appletb_reset_resume,' in tb_source, 'USB reset resume callback missing'
 assert 'KERNELRELEASE=${kernelver}' in (root / 'driver/dkms.conf').read_text()
 assert 'KDIR=${kernel_source_dir}' in (root / 'driver/dkms.conf').read_text()
 if len(sys.argv) > 1:

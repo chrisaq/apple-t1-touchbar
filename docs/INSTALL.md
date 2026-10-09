@@ -48,7 +48,7 @@ Copy or clone this repository, enter its root, and build as your normal user:
 ./scripts/build-package
 ```
 
-The output is `build/apple-t1-touchbar-dkms-0.1-2-x86_64.pkg.tar.zst`.
+The output is `build/apple-t1-touchbar-dkms-0.1-3-x86_64.pkg.tar.zst`.
 Source checksums are verified. The package contains source, not prebuilt modules;
 DKMS compiles on the target machine during installation.
 
@@ -57,7 +57,7 @@ DKMS compiles on the target machine during installation.
 The same command handles a fresh install and the earlier manual installation:
 
 ```bash
-sudo ./scripts/install-package build/apple-t1-touchbar-dkms-0.1-2-x86_64.pkg.tar.zst
+sudo ./scripts/install-package build/apple-t1-touchbar-dkms-0.1-3-x86_64.pkg.tar.zst
 ```
 
 The script validates model, firmware mode, configuration 1 and current headers;
