@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-2.0-only
+set -euo pipefail
+[[ $EUID -eq 0 ]] || { echo 'Run with sudo.' >&2; exit 1; }
+systemctl disable touchbar.service
+install -d /etc/modprobe.d
+# Retained across package removal, so early alias loading stays blocked.
+cat > /etc/modprobe.d/apple-t1-touchbar-recovery.conf <<'CONF'
+blacklist apple_ibridge
+blacklist apple_ib_tb
+blacklist apple_ib_als
+options apple_ibridge tb_mode_param=keyboard
+CONF
+printf 'Automatic activation disabled; recovery blacklists retained. No module was unloaded.\n'

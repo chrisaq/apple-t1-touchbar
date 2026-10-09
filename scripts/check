@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-2.0-only
+set -uo pipefail
+errors=0
+bad() { printf 'FAIL: %s\n' "$*" >&2; errors=$((errors+1)); }
+[[ $(cat /sys/class/dmi/id/product_name) == MacBookPro13,2 ]] || bad 'Unsupported hardware model.'
+for name in apple_ibridge apple_ib_tb apple_ib_als; do
+    modprobe -c | awk -v name="$name" '$1=="blacklist" && $2==name {found=1} END {exit !found}' || bad "Missing blacklist: $name"
+done
+if [[ -e /etc/systemd/system/touchbar.service && ! -L /etc/systemd/system/touchbar.service ]]; then
+    bad '/etc/systemd/system/touchbar.service overrides the packaged unit; migrate it.'
+fi
+if [[ -d /usr/share/apple-t1-touchbar ]]; then
+    (cd / && sha256sum --quiet -c /usr/share/apple-t1-touchbar/files.sha256) || bad 'Packaged source or service files changed.'
+else
+    bad 'Package integrity manifest missing.'
+fi
+shopt -s nullglob
+if [[ ${1:-} == --all ]]; then
+    kernels=()
+    for dir in /usr/lib/modules/*; do
+        [[ -d $dir/kernel ]] && kernels+=("${dir##*/}")
+    done
+elif [[ $# -le 1 ]]; then
+    kernels=("${1:-$(uname -r)}")
+else
+    printf 'Usage: apple-t1-touchbar-check [--all|kernel-release]\n' >&2; exit 2
+fi
+[[ ${#kernels[@]} -gt 0 ]] || bad 'No installed kernel module trees found.'
+for kernel in "${kernels[@]}"; do
+    [[ -d /usr/lib/modules/$kernel/build/include ]] || bad "Missing headers: $kernel"
+    status=$(dkms status -m appleibridge -v 0.1 -k "$kernel")
+    [[ $status == *': installed'* ]] || bad "DKMS driver not installed: $kernel"
+    for name in apple-ibridge apple-ib-tb apple-ib-als; do
+        path=$(modinfo -k "$kernel" -n "$name" 2>/dev/null) || { bad "$name missing: $kernel"; continue; }
+        [[ $path == */updates/dkms/* ]] || bad "Unexpected module path: $path"
+        magic=$(modinfo -k "$kernel" -F vermagic "$name")
+        [[ $magic == "$kernel "* ]] || bad "Kernel mismatch: $name ($kernel)"
+    done
+    printf 'Checked kernel: %s\n' "$kernel"
+done
+if pacman -Q linux-omarchy >/dev/null 2>&1; then
+    apple-t1-touchbar-boot-integrity || bad 'Omarchy UKI verification failed or unreadable; run this check with sudo.'
+fi
+if [[ $errors -gt 0 ]]; then
+    printf '%s check(s) failed. Read the upgrade/recovery guide before rebooting.\n' "$errors" >&2
+    exit 1
+fi
+printf 'PASS: source integrity, blacklists and DKMS installations. Runtime behavior still requires testing.\n'

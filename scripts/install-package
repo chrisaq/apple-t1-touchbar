@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-2.0-only
+set -euo pipefail
+fail() { printf 'STOP: %s\n' "$*" >&2; exit 1; }
+[[ $EUID -eq 0 ]] || fail 'Run with sudo.'
+[[ $# -eq 1 && -f $1 ]] || fail 'Usage: install-package path/to/package.pkg.tar.zst'
+[[ $(cat /sys/class/dmi/id/product_name) == MacBookPro13,2 ]] || fail 'Only MacBookPro13,2 is supported.'
+[[ $(pacman -Qp "$1" | awk '{print $1}') == apple-t1-touchbar-dkms ]] || fail 'Unexpected package name.'
+[[ -d /usr/lib/modules/$(uname -r)/build/include ]] || fail 'Install matching headers before continuing.'
+shopt -s nullglob
+found=0
+for device in /sys/bus/usb/devices/*; do
+    [[ -f $device/idVendor && -f $device/idProduct ]] || continue
+    if [[ $(cat "$device/idVendor") == 05ac && $(cat "$device/idProduct") == 8600 ]]; then
+        [[ $(cat "$device/bConfigurationValue") == 1 ]] || fail 'T1 is not in configuration 1.'
+        found=$((found+1))
+    fi
+done
+[[ $found == 1 ]] || fail 'Expected one T1 in normal mode (05ac:8600).'
+for name in apple_ibridge apple_ib_tb apple_ib_als; do
+    if [[ -d /sys/module/$name ]]; then
+        [[ $(cat "/sys/module/$name/initstate") == live ]] || fail "$name is not live; do not continue or unload it."
+    fi
+done
+while IFS= read -r line; do
+    [[ -z $line || $line == appleibridge/0.1,* || $line == appleibridge/0.1:* ]] || fail 'Another appleibridge version is registered; review migration first.'
+done < <(dkms status -m appleibridge)
+backup="/var/lib/apple-t1-touchbar/backups/$(date +%Y%m%d-%H%M%S)"
+install -d -m 700 "$backup"
+for path in /usr/src/appleibridge-0.1 /etc/systemd/system/touchbar.service /usr/local/sbin/touchbar-enable.sh /etc/modprobe.d/apple-t1-touchbar.conf; do
+    [[ ! -e $path ]] || cp -a "$path" "$backup/"
+done
+dkms status -m appleibridge > "$backup/dkms-status.txt"
+printf 'Backup: %s\n' "$backup"
+# Protect early boot before touching driver source, even on a fresh installation.
+install -d /etc/modprobe.d
+cat > /etc/modprobe.d/apple-t1-touchbar-recovery.conf <<'CONF'
+blacklist apple_ibridge
+blacklist apple_ib_tb
+blacklist apple_ib_als
+options apple_ibridge tb_mode_param=keyboard
+CONF
+systemctl disable touchbar.service 2>/dev/null || true
+# Retire only known unowned files from the previous manual installation.
+for path in /etc/systemd/system/touchbar.service /usr/local/sbin/touchbar-enable.sh; do
+    if [[ -f $path && ! -L $path ]]; then
+        pacman -Qo "$path" >/dev/null 2>&1 && fail "Another package owns $path; review the conflict."
+        mv "$path" "$backup/retired-${path##*/}"
+    fi
+done
+if [[ -d /usr/src/appleibridge-0.1 ]] && ! pacman -Qo /usr/src/appleibridge-0.1/dkms.conf >/dev/null 2>&1; then
+    # Retire registration so the first package installation cannot reuse an old build.
+    dkms remove -m appleibridge -v 0.1 --all
+    mv /usr/src/appleibridge-0.1 "$backup/retired-source"
+fi
+# Standard Arch DKMS hooks build for installed kernels. No wildcard overwrite.
+pacman -U "$1"
+systemctl daemon-reload
+apple-t1-touchbar-check --all
+printf '\nPackage installed; activation remains disabled. Running modules were not unloaded.\n'
+printf 'Follow docs/INSTALL.md for manual testing, service enablement and cold boot.\n'

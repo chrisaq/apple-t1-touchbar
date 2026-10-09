@@ -1,0 +1,10 @@
+name: Check release inputs
+on: [push, pull_request]
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tests/check-repository.py
+      - run: python3 -m unittest discover -s tests -v
+      - run: shellcheck scripts/activate scripts/check scripts/repair scripts/disable scripts/install-package scripts/build-package

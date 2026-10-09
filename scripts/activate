@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -euo pipefail
+log() { printf '%s\n' "$*"; }
+fail() { log "FAILED: $*" >&2; exit 1; }
+[[ $(cat /sys/class/dmi/id/product_name) == MacBookPro13,2 ]] || fail 'This release supports MacBookPro13,2 only.'
+[[ $EUID -eq 0 ]] || fail 'Root required.'
+exec 9>/run/lock/apple-t1-touchbar.lock
+flock -n 9 || fail 'Another activation is running.'
+shopt -s nullglob
+usb_devices=()
+for dev in /sys/bus/usb/devices/*; do
+    [[ -f $dev/idVendor && -f $dev/idProduct ]] || continue
+    [[ $(cat "$dev/idVendor") == 05ac && $(cat "$dev/idProduct") == 8600 ]] && usb_devices+=("$dev")
+done
+[[ ${#usb_devices[@]} -eq 1 ]] || fail 'Expected one normal-mode T1 device.'
+usb=${usb_devices[0]}
+[[ $(cat "$usb/bConfigurationValue") == 1 ]] || fail 'Configuration is not 1; refusing to change it.'
+real_usb=$(readlink -f "$usb")
+load_module() {
+    local name=$1 state_name=$2 path
+    shift 2
+    if [[ -d /sys/module/$state_name ]]; then
+        [[ $(cat "/sys/module/$state_name/initstate") == live ]] || fail "$state_name not live; do not unload."
+        return
+    fi
+    path=$(modinfo -n "$name") || fail "Missing module $name for $(uname -r)."
+    [[ $path == */updates/dkms/* ]] || fail "Unexpected module location: $path"
+    case "$path" in
+        *.ko.zst) zstd -qdc "$path" > "/run/touchbar/$name.ko" ;;
+        *.ko.xz) xz -dc "$path" > "/run/touchbar/$name.ko" ;;
+        *.ko.gz) gzip -dc "$path" > "/run/touchbar/$name.ko" ;;
+        *.ko) cp "$path" "/run/touchbar/$name.ko" ;;
+        *) fail "Unsupported module format: $path" ;;
+    esac
+    insmod "/run/touchbar/$name.ko" "$@"
+    [[ $(cat "/sys/module/$state_name/initstate") == live ]] || fail "$state_name not live."
+}
+install -d -m 700 /run/touchbar
+load_module apple-ibridge apple_ibridge tb_mode_param=keyboard
+[[ $(cat /sys/module/apple_ibridge/parameters/tb_mode_param) == keyboard ]] || fail 'Existing coordinator is not in keyboard mode.'
+devices=()
+for dev in /sys/bus/hid/devices/*:05AC:8600.*; do
+    real=$(readlink -f "$dev")
+    [[ $real == "$real_usb/"* ]] && devices+=("$dev")
+done
+[[ ${#devices[@]} -eq 2 ]] || fail 'Expected two T1 HID interfaces.'
+for dev in "${devices[@]}"; do
+    owner=$(basename "$(readlink -f "$dev/driver")")
+    case "$owner" in apple-ibridge-hid|hid-sensor-hub|hid-generic) ;; *) fail "Unexpected HID owner: $owner" ;; esac
+done
+for dev in "${devices[@]}"; do
+    owner=$(basename "$(readlink -f "$dev/driver")")
+    [[ $owner != apple-ibridge-hid ]] || continue
+    name=${dev##*/}
+    log "Binding $name (previous owner $owner)"
+    printf '%s' "$name" > "/sys/bus/hid/drivers/$owner/unbind"
+    printf '%s' "$name" > /sys/bus/hid/drivers/apple-ibridge-hid/bind
+    [[ $(basename "$(readlink -f "$dev/driver")") == apple-ibridge-hid ]] || fail 'HID handover failed.'
+done
+load_module apple-ib-tb apple_ib_tb fnmode=0 idle_timeout=-1 dim_timeout=-1
+found=0
+for dev in "${devices[@]}"; do
+    real=$(readlink -f "$dev")
+    [[ -f $real/fnmode ]] || continue
+    printf '%s' 0 > "$real/fnmode"
+    printf '%s' -1 > "$real/idle_timeout"
+    printf '%s' -1 > "$real/dim_timeout"
+    [[ $(cat "$real/fnmode") == 0 && $(cat "$real/idle_timeout") == -1 && $(cat "$real/dim_timeout") == -1 ]] || fail 'Settings verification failed.'
+    found=1
+    log "SUCCESS: ${dev##*/} fnmode=0 idle=-1 dim=-1"
+done
+[[ $found == 1 ]] || fail 'No Touch Bar controls; leave modules loaded for diagnosis.'

@@ -1,0 +1,100 @@
+diff --git i/drivers/appleibridge/apple-ibridge.c w/drivers/appleibridge/apple-ibridge.c
+index 377b9a2..9f0b12d 100644
+--- i/drivers/appleibridge/apple-ibridge.c
++++ w/drivers/appleibridge/apple-ibridge.c
+@@ -145,11 +145,6 @@ static enum tb_mode appleib_parse_tb_mode_param(void)
+ 
+ static DEFINE_MUTEX(appleib_tbmode_lock);
+ 
+-/* FIX 2 (local): guards against re-entering apple_ib_set_tb_mode(). Protected by
+- * appleib_tbmode_lock. See the long comment in that function.
+- */
+-static bool appleib_tbmode_switching;
+-
+ static bool appleib_cfg_is_keyboard(const struct usb_host_config *cfg)
+ {
+ 	int i;
+@@ -202,7 +197,7 @@ static int __maybe_unused appleib_find_config_values(struct usb_device *udev, in
+ 	return (*kbd_cv >= 0 || *disp_cv >= 0) ? 0 : -ENODEV;
+ }
+ 
+-/* Switch Touch Bar configuration. No-op on < 6.15 */
++/* Queue a Touch Bar configuration change. No-op on < 6.15. */
+ int apple_ib_set_tb_mode(struct usb_device *udev, enum tb_mode mode)
+ {
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(6,15,0)
+@@ -213,28 +208,12 @@ int apple_ib_set_tb_mode(struct usb_device *udev, enum tb_mode mode)
+ 
+ 	mutex_lock(&appleib_tbmode_lock);
+ 
+-	/* FIX 2 (local): usb_set_configuration() below tears down the current USB
+-	 * configuration and instantiates the new one, which unbinds and re-binds every
+-	 * interface driver SYNCHRONOUSLY, in this same task. That re-invokes
+-	 * appleib_hid_probe(), which calls this function again — and upstream then takes
+-	 * appleib_tbmode_lock a second time from the task that already holds it:
+-	 *
+-	 *   INFO: task modprobe:24033 blocked for more than 983 seconds.
+-	 *   INFO: task modprobe:24033 is blocked on a mutex likely owned by
+-	 *         task modprobe:24033.
+-	 *
+-	 * The wedged task is unkillable (D state), hangs sysinit.target so the login
+-	 * screen never appears, and blocks shutdown, requiring a forced power-off.
+-	 *
+-	 * Two changes fix it: this re-entrancy guard, and dropping the lock around
+-	 * usb_set_configuration() further down so the recursive call can reach the guard
+-	 * instead of blocking on the mutex.
++	/* Changing configuration destroys the HID device currently being probed.
++	 * Even with our mode mutex released, doing that synchronously deadlocks
++	 * on driver-core device locks. USB core's asynchronous helper retains
++	 * the USB device reference and queues the change in its own work item.
++	 * A successful return means queued, not that the change has completed.
+ 	 */
+-	if (appleib_tbmode_switching) {
+-		mutex_unlock(&appleib_tbmode_lock);
+-		return 0;
+-	}
+-
+ 	if (mode == TB_MODE_AUTO)
+ 		mode = appleib_parse_tb_mode_param();
+ 
+@@ -263,24 +242,13 @@ int apple_ib_set_tb_mode(struct usb_device *udev, enum tb_mode mode)
+ 		goto out_unlock;
+ 	}
+ 
+-	dev_info(&udev->dev, "MBP14,3: switching Touch Bar to cfg=%d (%s)\n",
++	dev_info(&udev->dev, "MBP14,3: queueing Touch Bar switch to cfg=%d (%s)\n",
+ 		 target_cv, (target_cv == dcv) ? "display" : "keyboard");
+ 
+-	/* FIX 2 (local): must NOT hold appleib_tbmode_lock across this call — it invokes
+-	 * probe/remove callbacks in this task which re-enter this function.
+-	 */
+-	appleib_tbmode_switching = true;
+-	mutex_unlock(&appleib_tbmode_lock);
+-
+-	ret = usb_set_configuration(udev, target_cv);
++	ret = usb_driver_set_configuration(udev, target_cv);
+ 	if (ret)
+-		dev_err(&udev->dev, "MBP14,3: usb_set_configuration(%d) failed: %d\n",
++		dev_err(&udev->dev, "MBP14,3: failed to queue configuration %d: %d\n",
+ 			target_cv, ret);
+-	else
+-		msleep(150); /* let udev settle */
+-
+-	mutex_lock(&appleib_tbmode_lock);
+-	appleib_tbmode_switching = false;
+ 
+ out_unlock:
+ 	mutex_unlock(&appleib_tbmode_lock);
+@@ -854,10 +822,10 @@ static int appleib_hid_probe(struct hid_device *hdev,
+ 	udev = hid_to_usb_dev(hdev);
+ 
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(6,15,0)
+-	/* On new kernels: switch according to tb_mode (AUTO prefers display). */
++	/* Queue a change if needed (AUTO prefers display); never switch inline. */
+ 	rc = apple_ib_set_tb_mode(udev, apple_tb_mode);
+ 	if (rc && rc != -ENODEV)
+-		dev_warn(&hdev->dev, "MBP14,3: tb_mode switch returned %d; continuing\n", rc);
++		dev_warn(&hdev->dev, "MBP14,3: tb_mode queue returned %d; continuing\n", rc);
+ #else
+ 	/* Legacy kernels: enforce the historical 'basic' (keyboard) config. */
+ 	if (udev->actconfig->desc.bConfigurationValue != APPLETB_BASIC_CONFIG) {

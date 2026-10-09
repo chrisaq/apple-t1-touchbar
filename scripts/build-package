@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-2.0-only
+set -euo pipefail
+[[ $EUID -ne 0 ]] || { echo 'Build as your normal user, not root.' >&2; exit 1; }
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+mkdir -p "$root/build/package"
+stage="$root/build/staging"
+mkdir -p "$stage"
+cp "$root/PKGBUILD" "$root/LICENSE" "$root/driver/"* "$stage/"
+for command in activate check repair disable boot-integrity; do
+    cp "$root/scripts/$command" "$stage/"
+done
+cp "$root/systemd/touchbar.service" "$root/packaging/"* "$stage/"
+cd "$stage"
+# Keep package caches and outputs out of the publishable source tree.
+BUILDDIR="$root/build/package" PKGDEST="$root/build" SRCDEST="$root/build/sources" makepkg --cleanbuild --force "$@"

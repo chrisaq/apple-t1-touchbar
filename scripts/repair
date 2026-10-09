@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-2.0-only
+set -euo pipefail
+[[ $EUID -eq 0 ]] || { echo 'Run with sudo.' >&2; exit 1; }
+kernel=${1:-$(uname -r)}
+[[ $# -le 1 && $kernel != */* && $kernel != -* ]] || { echo 'Usage: apple-t1-touchbar-repair [kernel-release]' >&2; exit 2; }
+[[ -d /usr/lib/modules/$kernel/build/include ]] || { echo 'Matching kernel headers are missing.' >&2; exit 1; }
+# Rebuild only this driver; never reload running modules.
+dkms build -m appleibridge -v 0.1 -k "$kernel" --force
+dkms install -m appleibridge -v 0.1 -k "$kernel" --force
+apple-t1-touchbar-check "$kernel"
+if [[ $(cat "/usr/lib/modules/$kernel/pkgbase") == linux-omarchy ]]; then
+    apple-t1-touchbar-boot-integrity --repair
+else
+    printf 'Synchronize boot images using your distribution tooling before reboot.\n'
+fi

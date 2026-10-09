@@ -1,0 +1,15 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Path
+Target = usr/src/appleibridge-0.1/*
+Target = usr/lib/modules/*/build/include/
+Target = usr/lib/modules/*/modules.order
+Target = usr/lib/systemd/system/touchbar.service
+Target = usr/bin/apple-t1-touchbar-*
+Target = usr/lib/modprobe.d/apple-t1-touchbar.conf
+
+[Action]
+Description = Verify Apple T1 Touch Bar builds and boot protection
+When = PostTransaction
+Exec = /usr/bin/apple-t1-touchbar-check --all
