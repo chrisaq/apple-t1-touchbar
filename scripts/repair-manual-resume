@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-2.0-only
+# One-time repair for the historical unowned appleibridge/0.1 installation.
+set -euo pipefail
+fail() { printf 'STOP: %s\n' "$*" >&2; exit 1; }
+[[ $EUID -eq 0 ]] || fail 'Run with sudo.'
+[[ $(cat /sys/class/dmi/id/product_name) == MacBookPro13,2 ]] || fail 'Unsupported model.'
+[[ $# == 0 ]] || fail 'Usage: repair-manual-resume'
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+source=/usr/src/appleibridge-0.1/apple-ib-tb.c
+[[ -f $source ]] || fail 'Historical driver source missing.'
+if pacman -Qo "$source" >/dev/null 2>&1; then
+    fail 'Package owns the source: upgrade to the package containing the resume fix instead.'
+fi
+kernel=$(uname -r)
+[[ -d /usr/lib/modules/$kernel/build/include ]] || fail 'Matching headers missing.'
+for name in apple_ibridge apple_ib_tb apple_ib_als; do
+    [[ ! -d /sys/module/$name || $(cat "/sys/module/$name/initstate") == live ]] || fail "$name is not live; do not reload or proceed."
+done
+# Check known layout/hash before changing persistent modules.
+"$root/scripts/boot-integrity"
+backup=$(mktemp -d /var/lib/apple-t1-touchbar-resume-XXXXXX)
+chmod 700 "$backup"
+cp -a /usr/src/appleibridge-0.1 "$backup/source"
+printf 'Backup: %s\n' "$backup"
+python3 - "$source" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+needle = '\t.reset_resume = appletb_reset_resume,'
+if s.count(needle) != 1:
+    raise SystemExit('Unexpected callback registration; inspect manually.')
+if '\t.resume = appletb_reset_resume,' in s:
+    print('Normal resume callback already present; rebuilding the installed driver.')
+else:
+    import re
+    if re.search(r'\.resume\s*=', s):
+        raise SystemExit('Another resume callback exists; inspect manually.')
+    p.write_text(s.replace(needle, '\t/* Restore state on normal and aborted suspend resume. */\n\t.resume = appletb_reset_resume,\n' + needle))
+PY
+dkms build -m appleibridge -v 0.1 -k "$kernel" --force
+dkms install -m appleibridge -v 0.1 -k "$kernel" --force
+[[ $(modinfo -k "$kernel" -n apple-ib-tb) == */updates/dkms/* ]] || fail 'Unexpected installed module.'
+[[ $(modinfo -k "$kernel" -F vermagic apple-ib-tb) == "$kernel "* ]] || fail 'Kernel mismatch.'
+"$root/scripts/boot-integrity" --repair
+printf 'Installed resume callback repair. Running modules and service were not reloaded.\n'
+printf 'Reboot when ready to load the fix; Wi-Fi suspend failure still needs separate testing.\n'
