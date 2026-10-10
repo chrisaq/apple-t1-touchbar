@@ -3,7 +3,29 @@ on: [push, pull_request]
 jobs:
   source:
     runs-on: ubuntu-latest
+
+    # Arch container instead of the ubuntu-latest host.
+    #
+    # install-package / build-package drive pacman and makepkg, so the environment
+    # CI runs in should match the environment these scripts target. On Ubuntu the
+    # Arch-specific paths are simply absent, so a regression there is invisible.
+    #
+    # Pinned by digest because Arch is rolling: an unrelated upstream package
+    # change should not be able to turn this job red. Bump deliberately with:
+    #   docker pull archlinux:base-devel
+    #   docker inspect --format '{{index .RepoDigests 0}}' archlinux:base-devel
+    # (tag for reference: archlinux:base-devel)
+    container:
+      image: archlinux@sha256:996c3a1d6b0d87b01242f6fcd8cfa3ad3eece1a67ab5c8f108e20af1d7b97bdd
+
     steps:
+      # base-devel ships python3, pacman, make and gcc but NOT git or shellcheck.
+      # git has to be installed before actions/checkout, which needs it and runs
+      # before any later step could provide it.
+      # -Syu rather than -Sy: a plain -Sy is the partial-upgrade anti-pattern.
+      - name: Install CI prerequisites
+        run: pacman -Syu --noconfirm git shellcheck
+
       - uses: actions/checkout@v4
       - run: python3 tests/check-repository.py
       - run: python3 -m unittest discover -s tests -v
